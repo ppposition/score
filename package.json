@@ -1,0 +1,23 @@
+{
+  "name": "canvas-auto-grader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "agent": "tsx src/cli/index.ts agent",
+    "grade": "tsx src/cli/index.ts grade",
+    "download": "tsx src/cli/index.ts download",
+    "list": "tsx src/cli/index.ts list"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "ky": "^1.7.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
