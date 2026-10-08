@@ -1,3 +1,5 @@
+import type { ResponseOutputItem, InputContent } from "../api/llm.js";
+
 /** Tool 定义 */
 export interface Tool {
   name: string;
@@ -17,14 +19,12 @@ export interface SessionContext {
   currentAssignmentId?: number;
 }
 
-/** OpenAI function calling 格式 */
+/** Responses API function calling 格式 */
 export interface OpenAIToolDef {
   type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
 }
 
 /** 确保 parameters 是合法 JSON Schema（OpenAI 要求 type: "object"） */
@@ -39,11 +39,9 @@ function normalizeParams(params: Record<string, unknown>): Record<string, unknow
 export function toOpenAITool(tool: Tool): OpenAIToolDef {
   return {
     type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: normalizeParams(tool.parameters),
-    },
+    name: tool.name,
+    description: tool.description,
+    parameters: normalizeParams(tool.parameters),
   };
 }
 
@@ -51,7 +49,11 @@ export function toOpenAITool(tool: Tool): OpenAIToolDef {
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
+  /** 用户附件与文本的 Responses 多模态输入。 */
+  input_content?: InputContent[];
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
   name?: string;
+  /** 保留 Responses 输出，用于多轮工具调用及推理上下文。 */
+  response_output?: ResponseOutputItem[];
 }

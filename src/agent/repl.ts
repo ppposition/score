@@ -4,6 +4,8 @@ import { stdin as input, stdout as output } from "node:process";
 import { getTool } from "./registry.js";
 import { chat } from "./llm.js";
 import type { ChatMessage, SessionContext } from "./types.js";
+import type { InputContent } from "../api/llm.js";
+import { prepareLocalAttachment } from "../grader/attachments.js";
 
 /** 执行 LLM 返回的 tool_calls */
 async function executeToolCalls(msg: ChatMessage, ctx: SessionContext): Promise<ChatMessage[]> {
@@ -62,6 +64,7 @@ export async function runAgent(): Promise<void> {
   console.log("你可以说「列出我的课程」「给作业打分」「查看提交状态」等。输入 exit 退出。\n");
 
   const messages: ChatMessage[] = [];
+  const pendingAttachments: InputContent[] = [];
 
   while (true) {
     const ctxHint = [
@@ -95,12 +98,32 @@ export async function runAgent(): Promise<void> {
           break;
         case "clear":
           messages.length = 0;
+          pendingAttachments.length = 0;
           console.log("✅ 对话历史已清空");
           break;
+        case "attach": {
+          let filePath = trimmed.replace(/^\/attach\s*/, "").trim();
+          if ((filePath.startsWith('"') && filePath.endsWith('"')) || (filePath.startsWith("'") && filePath.endsWith("'"))) filePath = filePath.slice(1, -1);
+          if (!filePath) {
+            console.log("用法：/attach <本地 PDF 或 MD 文件路径>");
+            break;
+          }
+          try {
+            const content = await prepareLocalAttachment(filePath);
+            const pageCount = [...pendingAttachments, ...content].filter((part) => part.type === "input_image").length;
+            if (pageCount > 30) throw new Error("待发送 PDF 总页数超过 30 页，请先发送已有附件");
+            pendingAttachments.push(...content);
+            console.log(`✅ 附件已加载：${filePath}，将在下一条消息中发送`);
+          } catch (err: any) {
+            console.error(`附件加载失败：${err.message}`);
+          }
+          break;
+        }
         case "help":
           console.log(`可用命令：
   /course <id>      设置当前课程
   /assignment <id>  设置当前作业
+  /attach <path>    加载本地 PDF、MD 或文本附件（可重复添加）
   /status           查看当前上下文
   /clear            清空对话历史
   exit / quit       退出 Agent`);
@@ -112,7 +135,11 @@ export async function runAgent(): Promise<void> {
     }
 
     // 正常对话流程
-    messages.push({ role: "user", content: trimmed });
+    messages.push({
+      role: "user", content: trimmed,
+      ...(pendingAttachments.length ? { input_content: [{ type: "input_text" as const, text: trimmed }, ...pendingAttachments] } : {}),
+    });
+    pendingAttachments.length = 0;
 
     let turn = 0;
     while (turn < 10) {
@@ -128,7 +155,7 @@ export async function runAgent(): Promise<void> {
       if (reply.tool_calls && reply.tool_calls.length > 0) {
         // 执行工具，结果加入消息历史
         const toolResults = await executeToolCalls(reply, ctx);
-        messages.push({ role: "assistant", content: null, tool_calls: reply.tool_calls });
+        messages.push(reply);
         messages.push(...toolResults);
       } else {
         // LLM 直接回复用户

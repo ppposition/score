@@ -51,7 +51,7 @@ npm run agent
 ```
 agent > 列出我的课程
 agent > 查看课程 12345 的作业
-agent > 给课程 12345 作业 67890 打分，先不写回 Canvas
+agent > 给课程 12345 作业 67890 打分，题目文件是 ./作业1.md，先不写回 Canvas
 agent > 把刚才的评分结果写回 Canvas
 ```
 
@@ -85,8 +85,8 @@ npm run list -- -c 12345
 npm run download -- -c 12345 -a 67890
 
 # 批量评分
-npm run grade -- -c 12345 -a 67890
-npm run grade -- -c 12345 -a 67890 --dry-run
+npm run grade -- -c 12345 -a 67890 -f ./作业1.md
+npm run grade -- -c 12345 -a 67890 -f ./作业1.md --dry-run
 ```
 
 > `--` 的作用：`npm run` 后的参数需要用 `--` 分隔，才能传给脚本，否则会被 npm 自己吃掉。
@@ -156,14 +156,14 @@ npm run download -- -c 77261 -a 338253 -o ./downloads/ai_homework
 
 ## 6. `grade` — 自动评分
 
-拉取某作业的所有提交，逐个调用 LLM 打分，然后写回 Canvas。
+先读取指定的本地题目文件并提取计分清单，再拉取对应学生附件，逐项按完成情况评分，最后写回 Canvas。每个小题10分，无小题整题10分；完整且不明显敷衍就得满分，不判断答案对错。缺失、未完成或明显敷衍的项得0分。总满分按计分项数量计算，不固定为100分。
 
 ```bash
 # 正式评分（会写回 Canvas）
-npm run grade -- -c <课程ID> -a <作业ID>
+npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md
 
 # 试运行（只评分不回写，检查效果）
-npm run grade -- -c <课程ID> -a <作业ID> --dry-run
+npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
 ```
 
 可选参数：
@@ -172,17 +172,19 @@ npm run grade -- -c <课程ID> -a <作业ID> --dry-run
 |------|------|--------|
 | `-c, --course <id>` | 课程 ID（必填） | — |
 | `-a, --assignment <id>` | 作业 ID（必填） | — |
+| `-f, --assignment-file <path>` | 本地题目文件（必填，支持 MD、TXT、PDF 等） | — |
 | `--dry-run` | 只评分不回写 | `false` |
+| `--include-full-score-comment` | 满分也提交评语，覆盖环境设置 | 未启用 |
 
-运行后会在当前目录生成一个 `grading_records_{作业ID}_{时间戳}.json` 文件，记录每次评分的完整信息（prompt、LLM 原始回复、分数、评语），用于追溯。
+运行后会在当前目录的 `output/` 文件夹生成一个 `grading_records_{作业ID}_{时间戳}.json` 文件，目录自动创建并已加入 `.gitignore`。文件记录总分、满分、评语及每项完成状态、理由和得分，用于追溯。写回 Canvas 的是原始总分，不转换成百分制。默认满分只提交分数，有扣分才提交评语；本地记录始终保留评语。可在 `.env` 设置 `SKIP_FULL_SCORE_COMMENT=false`，或加 `--include-full-score-comment`，使满分也提交评语。
 
 ### 评分流程
 
-1. 获取作业描述（题目要求）
+1. 读取指定题目文件并提取题目/小题清单，批量只提取一次
 2. 拉取该作业所有已提交的 submission
-3. 下载每个学生的附件内容，拼成文本
-4. 把作业描述 + 学生内容填入 prompt 模板
-5. 调用 LLM，解析返回的 JSON `{ score, comment }`
+3. 加载每个学生的全部附件（PDF 按页序渲染图片）
+4. 用统一计分清单逐项检查完成情况
+5. 程序按每个完成项10分累加，返回 `{ score, maxScore, comment, items }`
 6. 汇总后调用 Canvas API 批量写回分数和评语
 
 ---
@@ -195,7 +197,7 @@ npm run grade -- -c <课程ID> -a <作业ID> --dry-run
 npx tsx src/cli/index.ts list
 npx tsx src/cli/index.ts list -c 77261
 npx tsx src/cli/index.ts download -c 77261 -a 338253
-npx tsx src/cli/index.ts grade -c 77261 -a 338253 --dry-run
+npx tsx src/cli/index.ts grade -c 77261 -a 338253 -f ./作业1.md --dry-run
 ```
 
 `npx tsx` 会临时调用 `tsx` 来执行 TypeScript 文件，不需要手动安装 tsx 到全局。
@@ -219,6 +221,6 @@ npx tsc --noEmit
 | 看我有哪些课 | `npm run list` |
 | 看某课的作业 | `npm run list -- -c <ID>` |
 | 下载学生作业文件 | `npm run download -- -c <ID> -a <ID>` |
-| 试评分（不回写） | `npm run grade -- -c <ID> -a <ID> --dry-run` |
-| 正式评分（回写） | `npm run grade -- -c <ID> -a <ID>` |
+| 试评分（不回写） | `npm run grade -- -c <ID> -a <ID> -f ./作业1.md --dry-run` |
+| 正式评分（回写） | `npm run grade -- -c <ID> -a <ID> -f ./作业1.md` |
 | 检查类型错误 | `npx tsc --noEmit` |

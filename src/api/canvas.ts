@@ -136,7 +136,8 @@ export async function downloadAttachment(
   attachmentUrl: string,
   savePath: string,
 ): Promise<void> {
-  const res = await api.get(attachmentUrl);
+  // 附件提供的是完整下载 URL，不能再拼接 API 前缀。
+  const res = await api.get(attachmentUrl, { prefixUrl: "" });
   const buffer = Buffer.from(await res.arrayBuffer());
   const fs = await import("node:fs/promises");
   await fs.writeFile(savePath, buffer);

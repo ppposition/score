@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "agent": "tsx src/cli/index.ts agent",
     "grade": "tsx src/cli/index.ts grade",
     "download": "tsx src/cli/index.ts download",

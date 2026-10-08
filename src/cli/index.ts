@@ -1,6 +1,8 @@
 import { Command } from "commander";
 import { getCourses, getAssignments, getSubmissions, getStudents, downloadAttachment, postGrades } from "../api/canvas.js";
-import { gradeSubmission } from "../grader/grader.js";
+import { gradeSubmission, loadAssignment } from "../grader/grader.js";
+import { prepareAttachments } from "../grader/attachments.js";
+import { toCanvasGrade } from "../grader/posting.js";
 import type { GradeResult } from "../grader/grader.js";
 import { runAgent } from "../agent/repl.js";
 import fs from "node:fs/promises";
@@ -67,11 +69,12 @@ program
   .description("对某作业的所有提交进行 LLM 评分")
   .requiredOption("-c, --course <id>", "课程 ID", parseInt)
   .requiredOption("-a, --assignment <id>", "作业 ID", parseInt)
+  .requiredOption("-f, --assignment-file <path>", "作业题目文件（MD、TXT、PDF 等）")
   .option("--dry-run", "仅评分不回写 Canvas")
+  .option("--include-full-score-comment", "满分也提交评语（覆盖环境设置）")
   .action(async (opts) => {
-    const assignments = await getAssignments(opts.course);
-    const assignment = assignments.find((a) => a.id === opts.assignment);
-    const description = assignment?.description ?? "";
+    const rubric = await loadAssignment(opts.assignmentFile);
+    console.log(`已读取题目：${rubric.items.length} 个计分项，满分 ${rubric.items.length * 10}`);
 
     const subs = await getSubmissions(opts.course, opts.assignment);
     const grades: Record<number, { posted_grade: number; text_comment?: string }> = {};
@@ -80,24 +83,18 @@ program
     for (const sub of subs) {
       if (sub.workflow_state !== "submitted" && sub.workflow_state !== "graded") continue;
 
-      let content = "";
-      for (const att of sub.attachments) {
-        const resp = await fetch(att.url, {
-          headers: { Authorization: `Bearer ${process.env.CANVAS_TOKEN}` },
-        });
-        content += await resp.text() + "\n";
-      }
-      if (!content) content = "(无附件内容)";
+      const content = await prepareAttachments(sub.attachments);
 
       console.log(`评分中: user_id=${sub.user_id}...`);
-      const record = await gradeSubmission(content, description);
+      const record = await gradeSubmission(content, rubric);
       records.push(record);
-      console.log(`  分数: ${record.score}, 评语: ${record.comment}`);
+      console.log(`  分数: ${record.score}/${record.maxScore}, 评语: ${record.comment}`);
 
-      grades[sub.user_id] = { posted_grade: record.score, text_comment: record.comment };
+      grades[sub.user_id] = toCanvasGrade(record, opts.includeFullScoreComment ? false : undefined);
     }
 
-    const recordPath = `grading_records_${opts.assignment}_${Date.now()}.json`;
+    await fs.mkdir("output", { recursive: true });
+    const recordPath = path.join("output", `grading_records_${opts.assignment}_${Date.now()}.json`);
     await fs.writeFile(recordPath, JSON.stringify(records, null, 2));
     console.log(`评分记录已保存: ${recordPath}`);
 
