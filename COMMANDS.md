@@ -52,8 +52,24 @@ npm run agent
 agent > 列出我的课程
 agent > 查看课程 12345 的作业
 agent > 给课程 12345 作业 67890 打分，题目文件是 ./作业1.md，先不写回 Canvas
+agent > 给课程 12345 作业 67890 评分，题目文件 ./作业1.md，使用 subagent 并行处理，先保存，不写回 Canvas
 agent > 把刚才的评分结果写回 Canvas
 ```
+
+### 并行评分
+
+主 agent 自动执行 `prepare-grading-batch` → `delegate-grading` → `finalize-grading-batch`。每轮委派最多50人，默认并发3人。批次工具始终只保存本地文件；用户明确请求写回后，使用 `post-grades` 和成功记录路径写回。部分成功会报告失败人数及清单，不会把失败学生记作0分。
+
+```dotenv
+SUBAGENT_MAX_CONCURRENCY=3
+SUBAGENT_TASK_TIMEOUT_MS=300000
+SUBAGENT_MAX_ATTEMPTS=2
+LLM_REQUEST_TIMEOUT_MS=120000
+```
+
+并发必须为1～8整数，任务与请求超时为正整数，尝试次数为1～3整数；自动重试和显式重试共用次数上限。相同学生重复委派不会重复启动已成功或在途任务。
+
+成绩记录为 `output/grading_records_<assignmentId>_<batchId>.json`，仅含成功学生；批次详情为 `output/grading_batch_<assignmentId>_<batchId>.json`，包含失败、跳过和尝试次数。还有pending/running学生时拒绝汇总，可继续要求agent完成剩余委派。达到10轮上限会打印批次进度；批次仅在当前会话内有效，进程退出不恢复。
 
 ### 内置命令
 
@@ -62,7 +78,8 @@ agent > 把刚才的评分结果写回 Canvas
 | `/course <id>` | 设置当前课程（后续对话自动带入） |
 | `/assignment <id>` | 设置当前作业 |
 | `/status` | 查看当前上下文 |
-| `/clear` | 清空对话历史 |
+| `/attach <path>` | 加载本地 PDF、MD 或文本，随下一条消息发送 |
+| `/clear` | 无在途任务时清空对话、附件和批次，保留已保存文件 |
 | `exit` / `quit` | 退出 Agent |
 
 ---
@@ -156,7 +173,7 @@ npm run download -- -c 77261 -a 338253 -o ./downloads/ai_homework
 
 ## 6. `grade` — 自动评分
 
-先读取指定的本地题目文件并提取计分清单，再拉取对应学生附件，逐项按完成情况评分，最后写回 Canvas。每个小题10分，无小题整题10分；完整且不明显敷衍就得满分，不判断答案对错。缺失、未完成或明显敷衍的项得0分。总满分按计分项数量计算，不固定为100分。
+命令进入与交互式 Agent 共用的主 agent 工具循环，执行批次准备 → subagent 并行评分 → 汇总保存 → 写回 Canvas。题目清单提取一次，每个学生的附件独立处理。每个小题10分，无小题整题10分；完整且不明显敷衍就得满分，不判断答案对错。缺失、未完成或明显敷衍的项得0分。总满分按计分项数量计算，不固定为100分。
 
 ```bash
 # 正式评分（会写回 Canvas）
@@ -176,18 +193,19 @@ npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
 | `--dry-run` | 只评分不回写 | `false` |
 | `--include-full-score-comment` | 满分也提交评语，覆盖环境设置 | 未启用 |
 
-运行后会在当前目录的 `output/` 文件夹生成一个 `grading_records_{作业ID}_{时间戳}.json` 文件，目录自动创建并已加入 `.gitignore`。迟交在题目得分汇总后扣分：1天以内扣10分，超过1天至2天扣20分，超过2天至7天扣30分，超过7天至28天扣40分，超过28天扣50分（各档上限包含当天，1天为24小时，最终最低0分）。文件记录扣分前题目得分、迟交秒数、迟交扣分、最终总分、满分、评语及每项完成状态、理由和得分，用于追溯。写回 Canvas 的是原始总分，不转换成百分制。默认满分只提交分数，有扣分才提交评语；本地记录始终保留评语。可在 `.env` 设置 `SKIP_FULL_SCORE_COMMENT=false`，或加 `--include-full-score-comment`，使满分也提交评语。
+运行后会在当前目录的 `output/` 文件夹生成一个 `grading_records_<assignmentId>_<batchId>.json` 成绩记录和 `grading_batch_<assignmentId>_<batchId>.json` 批次清单，目录自动创建并已加入 `.gitignore`。迟交在题目得分汇总后扣分：1天以内扣10分，超过1天至2天扣20分，超过2天至7天扣30分，超过7天至28天扣40分，超过28天扣50分（各档上限包含当天，1天为24小时，最终最低0分）。文件记录扣分前题目得分、迟交秒数、迟交扣分、最终总分、满分、评语及每项完成状态、理由和得分，用于追溯。写回 Canvas 的是原始总分，不转换成百分制。默认满分只提交分数，有扣分才提交评语；本地记录始终保留评语。可在 `.env` 设置 `SKIP_FULL_SCORE_COMMENT=false`，或加 `--include-full-score-comment`，使满分也提交评语。
 
 ### 评分流程
 
 在 `.env` 设置 `SKIP_GRADED_SUBMISSIONS=true` 可跳过 Canvas 状态为 `graded` 的提交（包括 0 分）；设为 `false` 或不设置时允许重新评分。重新提交后状态为 `submitted` 的作业仍会评分。此设置适用于 CLI、Agent 单人/批量评分及评分记录写回，`--dry-run` 也遵循此设置。新评分记录包含 `userId`，跳过部分学生后仍能准确写回对应学生。
 
-1. 读取指定题目文件并提取题目/小题清单，批量只提取一次
-2. 拉取该作业所有已提交的 submission
-3. 加载每个学生的全部附件（PDF 按页序渲染图片）
-4. 用统一计分清单逐项检查完成情况
-5. 程序按每个完成项10分累加，返回 `{ score, maxScore, comment, items }`
-6. 汇总后调用 Canvas API 批量写回分数和评语
+1. 主 agent 调用 `prepare-grading-batch`，读取题目、冻结提交元信息，并按环境设置筛选学生
+2. 调用 `delegate-grading` 分组委派，默认最多同时运行3个学生任务
+3. 各评分 subagent 加载当前学生附件，调用评分核心并得到正式成绩
+4. 主 agent 调用 `finalize-grading-batch`，校验完整覆盖和成绩，保存成功记录与失败清单
+5. 默认调用 `post-grades` 写回成功学生；`--dry-run` 禁用写回工具，只保存本地文件
+
+每名学生失败不阻止其他学生完成，失败学生不会记作0分。尚有未完成学生时不能汇总；主 agent 耗尽10轮或未完成写回时，命令以非零状态退出并打印批次进度。CLI采用同一环境变量控制跳过、并发、超时及重试。
 
 ---
 

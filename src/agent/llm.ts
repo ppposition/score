@@ -1,10 +1,9 @@
 import "dotenv/config";
-import { getAllTools } from "./registry.js";
-import type { ChatMessage } from "./types.js";
+import type { ChatMessage, AgentRunConfig } from "./types.js";
 import { toOpenAITool } from "./types.js";
 import { createResponse, getResponseText } from "../api/llm.js";
 
-const AGENT_SYSTEM_PROMPT = `你是一个 Canvas LMS 自动评分助手。你可以使用以下工具来帮助用户完成课程管理、作业评分等任务。
+export const AGENT_SYSTEM_PROMPT = `你是一个 Canvas LMS 自动评分助手。你可以使用以下工具来帮助用户完成课程管理、作业评分等任务。
 
 工作流程：
 1. 用户提出需求后，判断需要调用哪个工具
@@ -15,13 +14,19 @@ const AGENT_SYSTEM_PROMPT = `你是一个 Canvas LMS 自动评分助手。你可
 - 如果工具调用需要参数而用户没提供，主动问用户要
 - 如果工具返回错误，向用户说明原因
 - 调用工具时带上完整的必要参数
-- 评分必须调用 grade-submission 或 grade-all，要求用户指定本地题目文件 assignmentFile，不能用 Canvas 描述或对话中的学生附件代替题目文件。工具先提取题目，再加载对应学生附件。每个小题10分，无小题整题10分，只看完整性和是否明显敷衍，不判断对错；满分按计分项数量计算。
+- 评分必须使用正式评分工具（grade-submission、grade-all 或并行批次工具），要求用户指定本地题目文件 assignmentFile，不能用 Canvas 描述或对话中的学生附件代替题目文件。工具先提取题目，再加载对应学生附件。每个小题10分，无小题整题10分，只看完整性和是否明显敷衍，不判断对错；满分按计分项数量计算。
+- 用户指定 subagent 或并行评分时，使用 prepare-grading-batch → delegate-grading → finalize-grading-batch；待评分作业较多（需要评分的学生提交较多）时，即使用户未明确要求，也应主动启用 subagent 并行评分。遵循用户明确指定的评分方式，单人普通评分可用 grade-submission。
+- 只使用 prepare 返回的学生 ID，覆盖所有待评分学生；delegate 每次最多50人，可分轮执行。成绩来自工具，不能自行改分。
+- 尚未完成或达到轮数上限时明确说明未完成批次。部分成功说明成功和失败人数，不能声称全部成功。
+- 用户要求先不写回时，只保存记录并报告路径；后续明确请求写回时才用 post-grades。完整批次与部分成功记录必须明确区分。
 - 保持回答简洁明了`;
 
 export async function chat(
   messages: ChatMessage[],
+  config: Pick<AgentRunConfig, "instructions" | "tools">,
+  signal?: AbortSignal,
 ): Promise<ChatMessage> {
-  const tools = getAllTools().map(toOpenAITool);
+  const tools = config.tools.map(toOpenAITool);
 
   const input: Record<string, unknown>[] = [];
   for (const message of messages) {
@@ -42,12 +47,12 @@ export async function chat(
 
   const vision = messages.some((message) => message.input_content?.some((part) => part.type === "input_image"));
   const data = await createResponse({
-    instructions: AGENT_SYSTEM_PROMPT,
+    instructions: config.instructions,
     input,
     tools,
     tool_choice: "auto",
     temperature: 0.3,
-  }, { vision });
+  }, { vision, signal });
 
   const toolCalls: NonNullable<ChatMessage["tool_calls"]> = [];
   for (const item of data.output) {

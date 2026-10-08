@@ -1,59 +1,14 @@
 import "dotenv/config";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { getTool } from "./registry.js";
-import { chat } from "./llm.js";
-import type { ChatMessage, SessionContext } from "./types.js";
+import { createAgentContext, runMainAgent } from "./main.js";
+import type { ChatMessage, AgentExecutionContext } from "./types.js";
 import type { InputContent } from "../api/llm.js";
 import { prepareLocalAttachment } from "../grader/attachments.js";
 
-/** 执行 LLM 返回的 tool_calls */
-async function executeToolCalls(msg: ChatMessage, ctx: SessionContext): Promise<ChatMessage[]> {
-  if (!msg.tool_calls) return [];
-
-  const results: ChatMessage[] = [];
-  for (const tc of msg.tool_calls) {
-    const tool = getTool(tc.function.name);
-    if (!tool) {
-      results.push({
-        role: "tool",
-        tool_call_id: tc.id,
-        content: `未知工具: ${tc.function.name}`,
-      });
-      continue;
-    }
-
-    let args: Record<string, unknown>;
-    try {
-      args = JSON.parse(tc.function.arguments);
-    } catch {
-      args = {};
-    }
-    // 自动注入上下文中的参数
-    if (ctx.currentCourseId && !args.courseId) args.courseId = ctx.currentCourseId;
-    if (ctx.currentAssignmentId && !args.assignmentId) args.assignmentId = ctx.currentAssignmentId;
-
-    try {
-      const result = await tool.handler(args);
-      results.push({
-        role: "tool",
-        tool_call_id: tc.id,
-        content: result.content.map((c) => c.text).join("\n"),
-      });
-    } catch (err: any) {
-      results.push({
-        role: "tool",
-        tool_call_id: tc.id,
-        content: `工具执行出错: ${err.message}`,
-      });
-    }
-  }
-  return results;
-}
-
 /** 交互式 Agent —— 自然语言驱动，LLM 自动选择工具 */
 export async function runAgent(): Promise<void> {
-  const ctx: SessionContext = {};
+  const ctx: AgentExecutionContext = createAgentContext();
   const rl = readline.createInterface({ input, output });
 
   console.log(`
@@ -97,6 +52,10 @@ export async function runAgent(): Promise<void> {
   作业 ID: ${ctx.currentAssignmentId ?? "未设置"}`);
           break;
         case "clear":
+          try { ctx.batchManager!.clear(); } catch (error) {
+            console.error((error as Error).message);
+            break;
+          }
           messages.length = 0;
           pendingAttachments.length = 0;
           console.log("✅ 对话历史已清空");
@@ -141,33 +100,14 @@ export async function runAgent(): Promise<void> {
     });
     pendingAttachments.length = 0;
 
-    let turn = 0;
-    while (turn < 10) {
-      turn++;
-      let reply: ChatMessage;
-      try {
-        reply = await chat(messages);
-      } catch (err: any) {
-        console.error(`\n❌ LLM 调用失败: ${err.message}`);
-        break;
-      }
-
-      if (reply.tool_calls && reply.tool_calls.length > 0) {
-        // 执行工具，结果加入消息历史
-        const toolResults = await executeToolCalls(reply, ctx);
-        messages.push(reply);
-        messages.push(...toolResults);
-      } else {
-        // LLM 直接回复用户
-        messages.push(reply);
-        console.log(`\n${reply.content ?? ""}\n`);
-        break;
-      }
+    const result = await runMainAgent(messages, ctx);
+    if (result.status === "completed") console.log(`\n${result.finalText ?? ""}\n`);
+    else {
+      console.error(`\n❌ ${result.error?.message ?? "任务未完成"}`);
+      const batches = ctx.batchManager!.progress();
+      if (batches.length) console.error(`批次进度：${JSON.stringify(batches)}；可继续委派或汇总。`);
     }
 
-    if (turn >= 10) {
-      console.log("⚠️ 工具调用次数过多，请简化你的请求。");
-    }
   }
 
   rl.close();

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { createResponse } from "../src/api/llm.js";
-import { chat } from "../src/agent/llm.js";
+import { chat as configuredChat, AGENT_SYSTEM_PROMPT } from "../src/agent/llm.js";
+import { getAllTools } from "../src/agent/registry.js";
+import type { ChatMessage } from "../src/agent/types.js";
+const chat = (messages: ChatMessage[]) => configuredChat(messages, { instructions: AGENT_SYSTEM_PROMPT, tools: getAllTools() });
 import { gradeSubmission } from "../src/grader/grader.js";
 
 process.env.LLM_BASE_URL = "https://example.test/api/v1/";

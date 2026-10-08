@@ -3,6 +3,8 @@ import { listCourses, listAssignments, getAssignmentDetail, listStudents } from 
 import { listSubmissions, downloadSubmissions } from "./tools/submissions.js";
 import { gradeSingle, gradeAll, postGradesTool } from "./tools/grading.js";
 
+import { prepareGradingBatch, delegateGrading, finalizeGradingBatch } from "./tools/delegation.js";
+
 /** 所有工具列表 */
 const ALL_TOOLS: Tool[] = [
   listCourses,
@@ -14,6 +16,9 @@ const ALL_TOOLS: Tool[] = [
   gradeSingle,
   gradeAll,
   postGradesTool,
+  prepareGradingBatch,
+  delegateGrading,
+  finalizeGradingBatch,
 ];
 
 /** 工具名称 -> Tool 的映射 */

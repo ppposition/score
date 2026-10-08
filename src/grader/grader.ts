@@ -72,6 +72,7 @@ export async function gradeSubmission(
   submissionContent: string | InputContent[],
   assignment: string | AssignmentRubric,
   timing?: SubmissionTiming,
+  signal?: AbortSignal,
 ): Promise<GradeResult> {
   const { lateSeconds, latePenalty } = getLatePenalty(timing);
   const rubric = typeof assignment === "string" ? await extractAssignment(assignment) : validateRubric(assignment);
@@ -84,7 +85,7 @@ export async function gradeSubmission(
     input: typeof submissionContent === "string" ? prompt : [{ role: "user", content: [{ type: "input_text", text: prompt }, ...submissionContent] }],
     temperature: 0,
     text: { format: { type: "json_object" } },
-  }, { vision });
+  }, { vision, signal });
   const result = evaluationSchema.parse(parseJson(getResponseText(data.output)));
   const byId = new Map(result.items.map((item) => [item.id, item]));
   if (byId.size !== result.items.length || result.items.length !== rubric.items.length || rubric.items.some((item) => !byId.has(item.id))) {

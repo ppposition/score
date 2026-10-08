@@ -5,7 +5,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<ToolResult>;
+  handler: (args: Record<string, unknown>, context?: AgentExecutionContext) => Promise<ToolResult>;
 }
 
 export interface ToolResult {
@@ -56,4 +56,26 @@ export interface ChatMessage {
   name?: string;
   /** 保留 Responses 输出，用于多轮工具调用及推理上下文。 */
   response_output?: ResponseOutputItem[];
+}
+
+export interface AgentExecutionContext extends SessionContext {
+  batchManager?: import("./subagents/manager.js").GradingBatchManager;
+  signal?: AbortSignal;
+  task?: { batchId: string; taskId: string; userId: number };
+  log?: (message: string) => void;
+}
+
+export interface AgentRunConfig {
+  name: string;
+  instructions: string;
+  tools: Tool[];
+  maxTurns: number;
+  stopAfterTools?: string[];
+}
+
+export interface AgentRunResult {
+  status: "completed" | "failed" | "max_turns";
+  messages: ChatMessage[];
+  finalText?: string;
+  error?: { code: string; message: string; retryable?: boolean; retryAfterMs?: number };
 }

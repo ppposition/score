@@ -116,7 +116,7 @@ export const gradeAll: Tool = {
 
 export const postGradesTool: Tool = {
   name: "post-grades",
-  description: "将评分结果写回 Canvas（需先运行 grade-all 获得评分记录文件）",
+  description: "将评分结果写回 Canvas（需先运行 grade-all 或 finalize-grading-batch 获得评分记录文件）",
   parameters: {
     type: "object",
     properties: {

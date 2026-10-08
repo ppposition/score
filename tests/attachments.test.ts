@@ -5,7 +5,10 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { prepareAttachments, prepareLocalAttachment } from "../src/grader/attachments.js";
 import { gradeSubmission } from "../src/grader/grader.js";
-import { chat } from "../src/agent/llm.js";
+import { chat as configuredChat, AGENT_SYSTEM_PROMPT } from "../src/agent/llm.js";
+import { getAllTools } from "../src/agent/registry.js";
+import type { ChatMessage } from "../src/agent/types.js";
+const chat = (messages: ChatMessage[]) => configuredChat(messages, { instructions: AGENT_SYSTEM_PROMPT, tools: getAllTools() });
 import type { Attachment } from "../src/api/types.js";
 
 const originalFetch = globalThis.fetch;

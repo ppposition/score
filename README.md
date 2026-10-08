@@ -12,8 +12,14 @@ src/
 ├── grader/             # LLM 评分核心
 │   ├── prompts.ts      # 评分 prompt 模板（系统提示词 + 用户提示词）
 │   └── grader.ts       # 调用 LLM（Responses API），解析 JSON 结果
+├── agent/              # 主 agent、可复用工具循环和会话内并行评分
+│   ├── main.ts         # 交互式与 CLI 共用主 agent 配置
+│   ├── grade.ts        # CLI 参数转为一次性评分请求
+│   ├── runtime.ts      # 独立工具列表、Responses 历史、停止策略
+│   ├── subagents/      # 批次管理、共享并发队列、限定学生的 grader
+│   └── tools/          # 包含 prepare / delegate / finalize 三个批次工具
 └── cli/
-    └── index.ts        # 命令行入口（commander）：list / download / grade 三个子命令
+    └── index.ts        # 命令行入口（commander）：agent / list / download / grade 子命令
 ```
 
 ### `src/api/` — Canvas API 封装
@@ -32,15 +38,44 @@ src/
 
 ### `src/cli/` — 命令行入口
 
-提供三个子命令：
+提供四个子命令：
 
 | 命令 | 功能 |
 |------|------|
-| `grade` | 批量评分：读取题目文件 → 拉取提交及附件 → 按完成情况评分 → 写回 Canvas |
+| `agent` | 自然语言交互，可按需使用并行评分子 agent |
+| `grade` | 一次性主 agent 评分：准备批次 → 委派 subagent → 汇总保存 → 写回 Canvas |
 | `download` | 下载某作业所有学生的附件到本地 |
 | `list` | 列出课程所有作业（id + 名称 + 满分） |
 
 `grade` 支持 `--dry-run` 模式，仅评分不回写。默认满分只写回分数，有扣分才写回评语。本地记录仍保留所有评语；设置 `.env` 中 `SKIP_FULL_SCORE_COMMENT=false` 或使用 `--include-full-score-comment` 可恢复满分也提交评语。Agent 的 `grade-all` 和 `post-grades` 可用 `skipFullScoreComment` 参数覆盖此设置。旧记录缺少 `maxScore` 时仍提交评语。
+
+## 并行 subagent 评分
+
+运行 `npm run agent`，可以说：
+
+```text
+给课程 12345 作业 67890 评分，题目文件 ./作业1.md。
+使用 subagent 并行处理，先保存成绩，不写回 Canvas。
+```
+
+主 agent 使用 `prepare-grading-batch` 提取一次题目并冻结提交元信息，再使用 `delegate-grading` 分组委派（每次1～50人），最后使用 `finalize-grading-batch` 校验覆盖并保存记录。每名学生具有独立 taskId、消息历史和仅限当前学生的评分工具；正式成绩来自原有 `gradeSubmission()`，工具成功后直接结束子 agent。外层对话不接收学生附件内容。
+
+同一会话所有批次共享并发上限，默认最多同时运行3个学生任务；附件下载、PDF转换、子 agent与评分模型请求均在该slot内。重复委派复用在途任务或已保存成绩。网络错误、429、5xx及超时可受限重试，401/403、附件或结果校验失败不自动重试。每次委派最多自动尝试2次，自动与显式重试共同受总次数上限约束。
+
+结果保存在：
+
+- `output/grading_records_<assignmentId>_<batchId>.json`：仅含成功记录，每条包含 `userId`，可由现有 `post-grades` 写回。
+- `output/grading_batch_<assignmentId>_<batchId>.json`：批次状态、每个任务的尝试次数、失败、跳过原因与记录路径。
+
+有未委派或在途任务时拒绝汇总；全部成功为 `completed`，部分成功为 `partial`，全部失败为 `failed`；空批次保存空记录及跳过原因。汇总只校验迟交结果，不重复扣分。批次工具仅本地保存，后续明确要求写回时使用 `post-grades`；部分成功记录只包含成功学生。
+
+`/clear` 在没有在途任务时清空聊天、附件和批次；已保存文件保留，可通过路径写回，但旧 batchId 不能继续使用。批次仅存在于当前进程内，不支持退出后恢复；准备后重新上传提交应新建批次。超过主 agent 10轮上限时会报告当前批次进度，可以继续对话完成剩余委派。
+
+配置见 `.env.example`：`SUBAGENT_MAX_CONCURRENCY` 为1～8整数，默认3；`SUBAGENT_TASK_TIMEOUT_MS` 为正整数，默认300000；`SUBAGENT_MAX_ATTEMPTS` 为1～3整数，默认2；`LLM_REQUEST_TIMEOUT_MS` 为正整数，默认120000。任务计时从实际运行开始，不含排队时间；超时取消底层请求和PDF进程，清理完成后才释放并发slot。
+
+CLI `grade` 也使用同一主 agent 配置和工具循环，一次性执行 prepare → delegate → finalize，默认使用 subagent 并行评分，并在保存后通过 `post-grades` 写回成功记录；`--dry-run` 在工具层禁用写回，`--include-full-score-comment` 覆盖满分评语设置。课程、作业和题目文件由命令参数固定。失败学生保留在批次清单；未完成汇总或写回时命令以非零状态退出。
+
+交互式 Agent 的 `grade-all` 和单人评分工具继续可用。
 
 ## PDF 和 Markdown 附件
 
@@ -130,3 +165,12 @@ Agent 示例：
 ```text
 给课程 12345 作业 67890 评分，题目文件是 ./作业1.md，先不写回 Canvas
 ```
+
+## 验证
+
+```bash
+npm run typecheck
+npm test
+```
+
+自动化测试使用模拟模型与Canvas，包括四名学生的完整委派流程、跨批次并发、部分失败、受限重试、迟交一致性、记录写回兼容性及PDF进程取消清理，不访问真实服务。真实3～5名学生的本地保存试运行需在配置实际课程和作业后进行。
