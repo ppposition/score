@@ -130,22 +130,28 @@ test("单人及批量评分先提取文件题目，再加载对应用户附件�
         if (url.searchParams.get("page") === "2") return Response.json([]);
         if (url.pathname.endsWith("/submissions")) {
           return Response.json(users.map((user) => ({
-            id: user, user_id: user, grade: null, score: null, submitted_at: "2026-10-08", late: true, workflow_state: "submitted",
+            id: user, user_id: user, grade: null, score: null, submitted_at: "2026-10-08", late: true, seconds_late: 86401, workflow_state: "submitted",
             attachments: [{ id: user, filename: `${user}.md`, display_name: `${user}.md`, size: 1, "content-type": "text/markdown", url: `https://attachment.test/${user}` }],
           })));
         }
+        if (url.pathname.endsWith("/assignments/2")) return Response.json({ id: 2, name: "作业", description: null, due_at: "2026-10-06T00:00:00Z", points_possible: 10 });
         if (url.pathname.endsWith("/users")) return Response.json(users.map((id) => ({ id, name: `用户${id}` })));
         throw new Error(`不应请求其他Canvas接口：${url.pathname}`);
       };
       const result = await tool.handler({ courseId: 1, assignmentId: 2, userId: 3, assignmentFile: file, dryRun: true });
       assert.deepEqual(events, ["题目提取", ...users.flatMap((id) => [`附件${id}`, `评分${id}`])]);
-      assert.match(result.content[0].text, /10\/10/);
+      assert.match(result.content[0].text, /0\/10/);
+      assert.match(result.content[0].text, /扣20分/);
       if (tool === gradeAll) {
         recordPath = result.content[0].text.match(/评分记录已保存: (.+)/)?.[1];
         assert.ok(recordPath);
         const records = JSON.parse(await fs.readFile(recordPath, "utf-8"));
         assert.equal(records.length, 2);
         assert.equal(records[0].items[0].score, 10);
+        assert.equal(records[0].baseScore, 10);
+        assert.equal(records[0].latePenalty, 20);
+        assert.equal(records[0].lateSeconds, 86401);
+        assert.equal(records[0].score, 0);
       }
     }
   } finally {

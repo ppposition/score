@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  getAssignment,
   getSubmissions,
   getStudents,
   postGrades,
@@ -10,6 +11,7 @@ import type { GradeResult } from "../../grader/grader.js";
 import type { Tool, ToolResult } from "../types.js";
 import { prepareAttachments } from "../../grader/attachments.js";
 import { toCanvasGrade } from "../../grader/posting.js";
+import { shouldSkipSubmission } from "../../grader/selection.js";
 
 export const gradeSingle: Tool = {
   name: "grade-submission",
@@ -33,10 +35,15 @@ export const gradeSingle: Tool = {
     const subs = await getSubmissions(courseId, assignmentId);
     const sub = subs.find((s) => s.user_id === userId);
     if (!sub) return { content: [{ type: "text", text: `未找到 user_id=${userId} 的提交。` }], isError: true };
+    if (shouldSkipSubmission(sub)) {
+      return { content: [{ type: "text", text: `跳过 [${userId}]：该提交已评分（SKIP_GRADED_SUBMISSIONS=true）。` }] };
+    }
 
+    const assignment = sub.late && sub.seconds_late == null && sub.cached_due_date === undefined
+      ? await getAssignment(courseId, assignmentId) : undefined;
     const content = await prepareAttachments(sub.attachments);
 
-    const record = await gradeSubmission(content, rubric);
+    const record = await gradeSubmission(content, rubric, { ...sub, dueAt: assignment?.due_at });
     return {
       content: [{ type: "text", text: `评分完成：分数 ${record.score}/${record.maxScore}\n评语：${record.comment}` }],
     };
@@ -67,21 +74,27 @@ export const gradeAll: Tool = {
       getSubmissions(courseId, assignmentId),
       getStudents(courseId),
     ]);
+    const assignment = subs.some((sub) => !shouldSkipSubmission(sub) && sub.late && sub.seconds_late == null && sub.cached_due_date === undefined)
+      ? await getAssignment(courseId, assignmentId) : undefined;
     const studentMap = new Map(students.map((s) => [s.id, s.name]));
 
     const grades: Record<number, { posted_grade: number; text_comment?: string }> = {};
-    const records: GradeResult[] = [];
+    const records: (GradeResult & { userId: number })[] = [];
     const logs: string[] = [];
 
     for (const sub of subs) {
       if (sub.workflow_state !== "submitted" && sub.workflow_state !== "graded") continue;
       const name = studentMap.get(sub.user_id) ?? `user_${sub.user_id}`;
+      if (shouldSkipSubmission(sub)) {
+        logs.push(`  跳过 [${sub.user_id}] ${name}：该提交已评分`);
+        continue;
+      }
       logs.push(`  评分 [${sub.user_id}] ${name}...`);
 
       const content = await prepareAttachments(sub.attachments);
 
-      const record = await gradeSubmission(content, rubric);
-      records.push(record);
+      const record = await gradeSubmission(content, rubric, { ...sub, dueAt: assignment?.due_at });
+      records.push({ ...record, userId: sub.user_id });
       logs.push(`    -> ${record.score}/${record.maxScore} ${record.comment}`);
       grades[sub.user_id] = toCanvasGrade(record, typeof args.skipFullScoreComment === "boolean" ? args.skipFullScoreComment : undefined);
     }
@@ -120,18 +133,19 @@ export const postGradesTool: Tool = {
     const recordFile = String(args.recordFile);
 
     const raw = await fs.readFile(recordFile, "utf-8");
-    const records: GradeResult[] = JSON.parse(raw);
+    const records: (GradeResult & { userId?: number })[] = JSON.parse(raw);
     const grades: Record<number, { posted_grade: number; text_comment?: string }> = {};
-    // 从 records 文件重建 grades — 这里假设 records 按 sub.user_id 顺序存储
-    // 需要重新获取 submissions 来匹配 user_id
+    // 新记录使用学生 ID，旧记录兼容原有的提交顺序。
     const subs = await getSubmissions(courseId, assignmentId);
     const submitted = subs.filter(
       (s) => s.workflow_state === "submitted" || s.workflow_state === "graded",
     );
-    for (let i = 0; i < submitted.length && i < records.length; i++) {
-      grades[submitted[i].user_id] = toCanvasGrade(records[i], typeof args.skipFullScoreComment === "boolean" ? args.skipFullScoreComment : undefined);
+    for (const [i, record] of records.entries()) {
+      const sub = record.userId === undefined ? submitted[i] : submitted.find((s) => s.user_id === record.userId);
+      if (!sub || shouldSkipSubmission(sub)) continue;
+      grades[sub.user_id] = toCanvasGrade(record, typeof args.skipFullScoreComment === "boolean" ? args.skipFullScoreComment : undefined);
     }
-    await postGrades(courseId, assignmentId, grades);
+    if (Object.keys(grades).length > 0) await postGrades(courseId, assignmentId, grades);
     return { content: [{ type: "text", text: `已写回 ${Object.keys(grades).length} 个评分到 Canvas。` }] };
   },
 };

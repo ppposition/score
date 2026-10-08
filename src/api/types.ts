@@ -23,6 +23,8 @@ export const SubmissionSchema = z.object({
   score: z.number().nullable(),
   submitted_at: z.string().nullable(),
   late: z.boolean(),
+  seconds_late: z.number().nullable().optional(),
+  cached_due_date: z.string().nullable().optional(),
   workflow_state: z.string(),
   attachments: z.array(AttachmentSchema).optional().default([]),
   submission_comments: z.array(SubmissionCommentSchema).optional().default([]),

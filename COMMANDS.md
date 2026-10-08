@@ -176,9 +176,11 @@ npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
 | `--dry-run` | 只评分不回写 | `false` |
 | `--include-full-score-comment` | 满分也提交评语，覆盖环境设置 | 未启用 |
 
-运行后会在当前目录的 `output/` 文件夹生成一个 `grading_records_{作业ID}_{时间戳}.json` 文件，目录自动创建并已加入 `.gitignore`。文件记录总分、满分、评语及每项完成状态、理由和得分，用于追溯。写回 Canvas 的是原始总分，不转换成百分制。默认满分只提交分数，有扣分才提交评语；本地记录始终保留评语。可在 `.env` 设置 `SKIP_FULL_SCORE_COMMENT=false`，或加 `--include-full-score-comment`，使满分也提交评语。
+运行后会在当前目录的 `output/` 文件夹生成一个 `grading_records_{作业ID}_{时间戳}.json` 文件，目录自动创建并已加入 `.gitignore`。迟交在题目得分汇总后扣分：1天以内扣10分，超过1天至2天扣20分，超过2天至7天扣30分，超过7天至28天扣40分，超过28天扣50分（各档上限包含当天，1天为24小时，最终最低0分）。文件记录扣分前题目得分、迟交秒数、迟交扣分、最终总分、满分、评语及每项完成状态、理由和得分，用于追溯。写回 Canvas 的是原始总分，不转换成百分制。默认满分只提交分数，有扣分才提交评语；本地记录始终保留评语。可在 `.env` 设置 `SKIP_FULL_SCORE_COMMENT=false`，或加 `--include-full-score-comment`，使满分也提交评语。
 
 ### 评分流程
+
+在 `.env` 设置 `SKIP_GRADED_SUBMISSIONS=true` 可跳过 Canvas 状态为 `graded` 的提交（包括 0 分）；设为 `false` 或不设置时允许重新评分。重新提交后状态为 `submitted` 的作业仍会评分。此设置适用于 CLI、Agent 单人/批量评分及评分记录写回，`--dry-run` 也遵循此设置。新评分记录包含 `userId`，跳过部分学生后仍能准确写回对应学生。
 
 1. 读取指定题目文件并提取题目/小题清单，批量只提取一次
 2. 拉取该作业所有已提交的 submission

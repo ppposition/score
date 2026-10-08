@@ -5,6 +5,7 @@ import { createResponse, getResponseText } from "../api/llm.js";
 import type { InputContent } from "../api/llm.js";
 import { prepareLocalAttachment } from "./attachments.js";
 import { parseMarkdownAssignment } from "./assignment.js";
+import { getLatePenalty, type SubmissionTiming } from "./late.js";
 
 const assignmentSchema = z.object({
   items: z.array(z.object({ id: z.string().trim().min(1), requirement: z.string().trim().min(1) })).min(1),
@@ -20,6 +21,9 @@ const evaluationSchema = z.object({
 });
 export interface GradeResult {
   score: number;
+  baseScore: number;
+  latePenalty: number;
+  lateSeconds: number;
   maxScore: number;
   comment: string;
   items: (z.infer<typeof evaluationSchema>["items"][number] & { score: number; maxScore: number })[];
@@ -67,7 +71,9 @@ export async function loadAssignment(filePath: string): Promise<AssignmentRubric
 export async function gradeSubmission(
   submissionContent: string | InputContent[],
   assignment: string | AssignmentRubric,
+  timing?: SubmissionTiming,
 ): Promise<GradeResult> {
+  const { lateSeconds, latePenalty } = getLatePenalty(timing);
   const rubric = typeof assignment === "string" ? await extractAssignment(assignment) : validateRubric(assignment);
   const vision = Array.isArray(submissionContent) && submissionContent.some((part) => part.type === "input_image");
   const prompt = SCORING_PROMPT
@@ -91,5 +97,10 @@ export async function gradeSubmission(
     const item = byId.get(id)!;
     return { ...item, score: item.status === "complete" ? 10 : 0, maxScore: 10 };
   });
-  return { score: items.reduce((sum, item) => sum + item.score, 0), maxScore: items.length * 10, comment: result.comment, items };
+  const baseScore = items.reduce((sum, item) => sum + item.score, 0);
+  const score = Math.max(0, baseScore - latePenalty);
+  const comment = latePenalty
+    ? `${result.comment}\n迟交${(lateSeconds / 86400).toFixed(2)}天（${lateSeconds}秒），按迟交规则扣${latePenalty}分；题目得分${baseScore}分，最终得分${score}分（最低0分）。`
+    : result.comment;
+  return { score, baseScore, latePenalty, lateSeconds, maxScore: items.length * 10, comment, items };
 }

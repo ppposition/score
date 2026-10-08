@@ -1,8 +1,9 @@
 import { Command } from "commander";
-import { getCourses, getAssignments, getSubmissions, getStudents, downloadAttachment, postGrades } from "../api/canvas.js";
+import { getCourses, getAssignments, getAssignment, getSubmissions, getStudents, downloadAttachment, postGrades } from "../api/canvas.js";
 import { gradeSubmission, loadAssignment } from "../grader/grader.js";
 import { prepareAttachments } from "../grader/attachments.js";
 import { toCanvasGrade } from "../grader/posting.js";
+import { shouldSkipSubmission } from "../grader/selection.js";
 import type { GradeResult } from "../grader/grader.js";
 import { runAgent } from "../agent/repl.js";
 import fs from "node:fs/promises";
@@ -77,17 +78,23 @@ program
     console.log(`已读取题目：${rubric.items.length} 个计分项，满分 ${rubric.items.length * 10}`);
 
     const subs = await getSubmissions(opts.course, opts.assignment);
+    const assignment = subs.some((sub) => !shouldSkipSubmission(sub) && sub.late && sub.seconds_late == null && sub.cached_due_date === undefined)
+      ? await getAssignment(opts.course, opts.assignment) : undefined;
     const grades: Record<number, { posted_grade: number; text_comment?: string }> = {};
-    const records: GradeResult[] = [];
+    const records: (GradeResult & { userId: number })[] = [];
 
     for (const sub of subs) {
       if (sub.workflow_state !== "submitted" && sub.workflow_state !== "graded") continue;
+      if (shouldSkipSubmission(sub)) {
+        console.log(`跳过: user_id=${sub.user_id}，该提交已评分`);
+        continue;
+      }
 
       const content = await prepareAttachments(sub.attachments);
 
       console.log(`评分中: user_id=${sub.user_id}...`);
-      const record = await gradeSubmission(content, rubric);
-      records.push(record);
+      const record = await gradeSubmission(content, rubric, { ...sub, dueAt: assignment?.due_at });
+      records.push({ ...record, userId: sub.user_id });
       console.log(`  分数: ${record.score}/${record.maxScore}, 评语: ${record.comment}`);
 
       grades[sub.user_id] = toCanvasGrade(record, opts.includeFullScoreComment ? false : undefined);
