@@ -1,4 +1,5 @@
 import "dotenv/config";
+import type { ResponseInputItem } from "openai/resources/responses/responses";
 import type { ChatMessage, AgentRunConfig } from "./types.js";
 import { toOpenAITool } from "./types.js";
 import { createResponse, getResponseText } from "../api/llm.js";
@@ -28,13 +29,14 @@ export async function chat(
 ): Promise<ChatMessage> {
   const tools = config.tools.map(toOpenAITool);
 
-  const input: Record<string, unknown>[] = [];
+  const input: ResponseInputItem[] = [];
   for (const message of messages) {
     if (message.role === "tool") {
       if (!message.tool_call_id) throw new Error("工具结果缺少 tool_call_id");
       input.push({ type: "function_call_output", call_id: message.tool_call_id, output: message.content || "" });
     } else if (message.response_output) {
-      input.push(...message.response_output.map((item) => ({ ...item })));
+      // SDK 的输出联合类型包含额外项；这里原样回传已有推理和工具上下文。
+      input.push(...message.response_output as ResponseInputItem[]);
     } else {
       if (message.content !== null) {
         input.push({ type: "message", role: message.role, content: message.input_content ?? message.content });

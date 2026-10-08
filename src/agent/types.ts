@@ -1,4 +1,5 @@
 import type { ResponseOutputItem, InputContent } from "../api/llm.js";
+import type { FunctionTool } from "openai/resources/responses/responses";
 
 /** Tool 定义 */
 export interface Tool {
@@ -20,12 +21,7 @@ export interface SessionContext {
 }
 
 /** Responses API function calling 格式 */
-export interface OpenAIToolDef {
-  type: "function";
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
+export type OpenAIToolDef = FunctionTool;
 
 /** 确保 parameters 是合法 JSON Schema（OpenAI 要求 type: "object"） */
 function normalizeParams(params: Record<string, unknown>): Record<string, unknown> {
@@ -42,6 +38,7 @@ export function toOpenAITool(tool: Tool): OpenAIToolDef {
     name: tool.name,
     description: tool.description,
     parameters: normalizeParams(tool.parameters),
+    strict: false,
   };
 }
 

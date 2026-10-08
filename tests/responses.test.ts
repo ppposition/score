@@ -69,7 +69,7 @@ test("API 错误和截断响应抛出错误", async () => {
   globalThis.fetch = async () => Response.json({ status: "incomplete", output: [], incomplete_details: { reason: "max_output_tokens" } });
   await assert.rejects(createResponse({ input: "test" }), /max_output_tokens/);
   globalThis.fetch = async () => new Response("Bad gateway", { status: 502 });
-  await assert.rejects(createResponse({ input: "test" }), /非 JSON.*HTTP 502/);
+  await assert.rejects(createResponse({ input: "test" }), /HTTP 502.*Bad gateway/);
 });
 
 test("无效评分不会被当成零分", async () => {

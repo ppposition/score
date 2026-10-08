@@ -87,12 +87,16 @@ test("LLM请求超时和外部取消传播fetch，HTTP分类和Retry-After不丢
   config(ok);
   process.env.LLM_REQUEST_TIMEOUT_MS = "20";
   let aborted = 0;
+  let onStarted = () => {};
   globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
     init!.signal!.addEventListener("abort", () => { aborted++; reject(init!.signal!.reason); }, { once: true });
+    onStarted();
   });
   await assert.rejects(createResponse({ input: "test" }), (error: any) => error.code === "TIMEOUT");
   const controller = new AbortController();
+  const cancellingStarted = new Promise<void>((resolve) => { onStarted = resolve; });
   const pending = createResponse({ input: "test" }, { signal: controller.signal });
+  await cancellingStarted;
   controller.abort();
   await assert.rejects(pending, (error: any) => error.code === "CANCELLED" && !error.retryable);
   assert.equal(aborted, 2);
@@ -101,7 +105,25 @@ test("LLM请求超时和外部取消传播fetch，HTTP分类和Retry-After不丢
   globalThis.fetch = async () => Response.json(null);
   await assert.rejects(createResponse({}), (error: any) => error.code === "MODEL_OUTPUT_ERROR" && !error.retryable);
   for (const status of [429, 502, 401]) {
-    globalThis.fetch = async () => new Response("gateway", { status, headers: { "Retry-After": "2" } });
+    let requests = 0;
+    globalThis.fetch = async () => { requests++; return new Response("gateway", { status, headers: { "Retry-After": "2" } }); };
     await assert.rejects(createResponse({}), (error: any) => error.code === `HTTP_${status}` && error.retryAfterMs === 2000 && error.retryable === (status !== 401));
+    assert.equal(requests, 1, "SDK 不应叠加任务层重试");
+  }
+});
+
+test("SDK网络错误可重试，无效成功响应不可重试，预先取消不发请求", async () => {
+  config(ok);
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new TypeError("fetch failed"); };
+  await assert.rejects(createResponse({ input: "test" }), (error: any) => error.code === "NETWORK_ERROR" && error.retryable);
+  assert.equal(requests, 1);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(createResponse({}, { signal: controller.signal }), (error: any) => error.code === "CANCELLED" && !error.retryable);
+  assert.equal(requests, 1);
+  for (const reply of [Response.json(null), new Response("invalid", { headers: { "Content-Type": "application/json" } }), Response.json({ error: { message: "failed" } })]) {
+    globalThis.fetch = async () => reply;
+    await assert.rejects(createResponse({}), (error: any) => error.code === "MODEL_OUTPUT_ERROR" && !error.retryable);
   }
 });

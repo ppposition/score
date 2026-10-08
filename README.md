@@ -130,6 +130,8 @@ npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
 
 参见 `.env.example`：
 
+LLM 请求使用 OpenAI SDK，支持兼容 Responses API 的服务。SDK 自动重试已关闭，由评分任务层统一重试；`LLM_REQUEST_TIMEOUT_MS` 控制单次请求超时，默认 120000 毫秒。
+
 | 变量 | 说明 |
 |------|------|
 | `CANVAS_BASE_URL` | Canvas 实例 URL |
