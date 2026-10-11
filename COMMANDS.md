@@ -51,8 +51,8 @@ npm run agent
 ```
 agent > 列出我的课程
 agent > 查看课程 12345 的作业
-agent > 给课程 12345 作业 67890 打分，题目文件是 ./作业1.md，先不写回 Canvas
-agent > 给课程 12345 作业 67890 评分，题目文件 ./作业1.md，使用 subagent 并行处理，先保存，不写回 Canvas
+agent > 给课程 12345 作业 67890 打分，题目文件是 ./assignments/作业1.md，先不写回 Canvas
+agent > 给课程 12345 作业 67890 评分，题目文件 ./assignments/作业1.md，使用 subagent 并行处理，先保存，不写回 Canvas
 agent > 把刚才的评分结果写回 Canvas
 ```
 
@@ -102,8 +102,8 @@ npm run list -- -c 12345
 npm run download -- -c 12345 -a 67890
 
 # 批量评分
-npm run grade -- -c 12345 -a 67890 -f ./作业1.md
-npm run grade -- -c 12345 -a 67890 -f ./作业1.md --dry-run
+npm run grade -- -c 12345 -a 67890 -f ./assignments/作业1.md
+npm run grade -- -c 12345 -a 67890 -f ./assignments/作业1.md --dry-run
 ```
 
 > `--` 的作用：`npm run` 后的参数需要用 `--` 分隔，才能传给脚本，否则会被 npm 自己吃掉。
@@ -177,10 +177,10 @@ npm run download -- -c 77261 -a 338253 -o ./downloads/ai_homework
 
 ```bash
 # 正式评分（会写回 Canvas）
-npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md
+npm run grade -- -c <课程ID> -a <作业ID> -f ./assignments/作业1.md
 
 # 试运行（只评分不回写，检查效果）
-npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
+npm run grade -- -c <课程ID> -a <作业ID> -f ./assignments/作业1.md --dry-run
 ```
 
 可选参数：
@@ -217,7 +217,7 @@ npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
 npx tsx src/cli/index.ts list
 npx tsx src/cli/index.ts list -c 77261
 npx tsx src/cli/index.ts download -c 77261 -a 338253
-npx tsx src/cli/index.ts grade -c 77261 -a 338253 -f ./作业1.md --dry-run
+npx tsx src/cli/index.ts grade -c 77261 -a 338253 -f ./assignments/作业1.md --dry-run
 ```
 
 `npx tsx` 会临时调用 `tsx` 来执行 TypeScript 文件，不需要手动安装 tsx 到全局。
@@ -241,6 +241,6 @@ npx tsc --noEmit
 | 看我有哪些课 | `npm run list` |
 | 看某课的作业 | `npm run list -- -c <ID>` |
 | 下载学生作业文件 | `npm run download -- -c <ID> -a <ID>` |
-| 试评分（不回写） | `npm run grade -- -c <ID> -a <ID> -f ./作业1.md --dry-run` |
-| 正式评分（回写） | `npm run grade -- -c <ID> -a <ID> -f ./作业1.md` |
+| 试评分（不回写） | `npm run grade -- -c <ID> -a <ID> -f ./assignments/作业1.md --dry-run` |
+| 正式评分（回写） | `npm run grade -- -c <ID> -a <ID> -f ./assignments/作业1.md` |
 | 检查类型错误 | `npx tsc --noEmit` |

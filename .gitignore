@@ -3,3 +3,6 @@ dist/
 output/
 .env
 *.log
+
+# Local assignment prompts
+/assignments/

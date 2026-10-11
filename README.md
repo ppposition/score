@@ -54,7 +54,7 @@ src/
 运行 `npm run agent`，可以说：
 
 ```text
-给课程 12345 作业 67890 评分，题目文件 ./作业1.md。
+给课程 12345 作业 67890 评分，题目文件 ./assignments/作业1.md。
 使用 subagent 并行处理，先保存成绩，不写回 Canvas。
 ```
 
@@ -121,9 +121,9 @@ npm run list -- -c <课程ID>
 npm run download -- -c <课程ID> -a <作业ID>
 
 # 5. 自动评分
-npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md
+npm run grade -- -c <课程ID> -a <作业ID> -f ./assignments/作业1.md
 # 先试运行（不回写）：
-npm run grade -- -c <课程ID> -a <作业ID> -f ./作业1.md --dry-run
+npm run grade -- -c <课程ID> -a <作业ID> -f ./assignments/作业1.md --dry-run
 ```
 
 ## 环境变量
@@ -165,7 +165,7 @@ CLI 必须通过 `-f, --assignment-file <path>` 指定本地题目文件；Agent
 Agent 示例：
 
 ```text
-给课程 12345 作业 67890 评分，题目文件是 ./作业1.md，先不写回 Canvas
+给课程 12345 作业 67890 评分，题目文件是 ./assignments/作业1.md，先不写回 Canvas
 ```
 
 ## 验证
